@@ -1,27 +1,32 @@
 
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 
 
+# 기본 설정
 MODEL_NAME = "gemini-3.5-flash-lite"
 MAX_TURNS = 8
 
 SYSTEM_PROMPT = """
-너는 친절하고 이해하기 쉽게 설명하는 AI 챗봇이다.
+너는 폴리봇이라는 이름의 친절한 AI 챗봇이다.
+인공지능소프트웨어과 학생의 파이썬과 AI 공부를 도와준다.
 사용자의 질문에 정확하고 자연스러운 한국어로 답변한다.
-필요하면 예시를 들어 설명한다.
+쉽고 이해하기 쉽게 설명하며 필요하면 예시를 들어준다.
 """
 
+
+# FastAPI 서버 생성
 app = FastAPI(
     title="AI 용어 설명 API",
-    description="용어를 보내면 Gemini가 쉽게 설명해 줍니다."
+    description="폴리봇 AI 챗봇 API"
 )
 
 
+# 요청 데이터 형식
 class Question(BaseModel):
     word: str = Field(min_length=1, max_length=30)
     style: str = Field(default="초등학생도 알아듣게 쉽게")
@@ -43,6 +48,18 @@ class ChatReply(BaseModel):
     history: list[dict]
 
 
+# 접근 코드 확인
+def check_access(access_code):
+    expected = os.environ.get("APP_ACCESS_CODE")
+
+    if expected and access_code != expected:
+        raise HTTPException(
+            status_code=401,
+            detail="접근 코드가 틀렸습니다. 헤더 X-Access-Code를 확인하세요."
+        )
+
+
+# Gemini 연결
 def get_client():
     api_key = os.environ.get("GEMINI_API_KEY")
 
@@ -63,6 +80,7 @@ def get_client():
     )
 
 
+# Gemini 질문 실행
 def ask_gemini(client, system_instruction, contents):
     try:
         return client.interactions.create(
@@ -87,6 +105,7 @@ def ask_gemini(client, system_instruction, contents):
         )
 
 
+# 대화 기록 정리
 def trim_history(items, max_turns):
     user_indexes = [
         i for i, item in enumerate(items)
@@ -99,23 +118,31 @@ def trim_history(items, max_turns):
     return items[user_indexes[-max_turns]:]
 
 
+# 기본 페이지
 @app.get("/")
 def home():
     return {
-        "message": "AI 용어 설명 API 입니다. /docs 에서 사용법을 확인하세요."
+        "message": "폴리봇 AI 용어 설명 API입니다. /docs에서 사용법을 확인하세요."
     }
 
 
+# 인사 API
 @app.get("/hello/{name}")
 def hello(name: str):
     return {"message": f"{name} 님, 반가워요!"}
 
 
+# 덧셈 API
 @app.get("/add")
 def add(a: int, b: int):
-    return {"a": a, "b": b, "sum": a + b}
+    return {
+        "a": a,
+        "b": b,
+        "sum": a + b
+    }
 
 
+# 입력 데이터 확인 API
 @app.post("/echo")
 def echo(question: Question):
     return {
@@ -124,8 +151,14 @@ def echo(question: Question):
     }
 
 
+# AI 용어 설명 API
 @app.post("/explain", response_model=Answer)
-def explain(question: Question):
+def explain(
+    question: Question,
+    x_access_code: str | None = Header(default=None)
+):
+    check_access(x_access_code)
+
     client = get_client()
 
     reply = ask_gemini(
@@ -141,8 +174,14 @@ def explain(question: Question):
     )
 
 
+# AI 챗봇 API
 @app.post("/chat", response_model=ChatReply)
-def chat(request: ChatRequest):
+def chat(
+    request: ChatRequest,
+    x_access_code: str | None = Header(default=None)
+):
+    check_access(x_access_code)
+
     new_step = {
         "type": "user_input",
         "content": [
